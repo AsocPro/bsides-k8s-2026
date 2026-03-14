@@ -183,26 +183,103 @@
 
 ---
 
-## Technical Implementation Ideas
+## Technical Stack
 
-### Presentation Engine
-- **Svelte or React** + custom slide framework (Reveal.js is an option but may be limiting for this level of interactivity)
-- **GSAP or Motion One** for animations — timeline-based so you can scrub/pause
-- **xterm.js** for embedded terminals with WebSocket backend
-- Consider **SvelteKit** — good balance of simplicity and capability for this
+> **Constraint: Zero local installs.** Everything — frontend build, Go backend, K8s environments, dev workflow — runs via `dagger call`. The only prerequisite on the presenter's machine is Dagger itself.
 
-### Demo Runtime
-- **Dagger** pipelines to spin up k3s/kind clusters in containers
-- Pre-warm the next demo environment while presenting the current section
-- Each section gets its own ephemeral cluster (clean state, no cross-contamination)
-- Fallback: pre-recorded terminal sessions (asciinema) if live demo fails
+### Frontend — Svelte + Vite + Tailwind
+- **Svelte** (not SvelteKit — this is a single-page presentation, no SSR needed) + **Vite** for dev/build
+- **Tailwind CSS** for styling — utility classes keep animation-heavy components clean
+- **GSAP** for timeline-based animations (scrub, pause, sequence)
+- **ttyd** for embedded terminals — runs inside each Dagger demo container, Go backend reverse-proxies to it. Handles PTY + WebSocket + xterm.js rendering out of the box
+- Custom slide engine built in Svelte — each section is a component with its own animation timeline and event handlers
+- Built inside a Dagger container — `dagger call build-frontend` produces the static assets
 
-### Event Bridge
-- **Go or Node.js** WebSocket server
-- Watches K8s resources via informers/watches
-- Runs Goss or custom health checks for connectivity tests
-- Pushes structured events to the presentation frontend
-- Events have types that map to specific animations/overlays
+### Backend — Go Proxy Server
+The Go backend is the central hub. It serves the frontend, proxies terminal sessions, and runs the event bridge.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Go Backend                            │
+│                                                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
+│  │ Static File  │  │  Terminal    │  │  Event Bridge  │  │
+│  │ Server       │  │  Reverse     │  │                │  │
+│  │ (Svelte app) │  │  Proxy→ttyd  │  │  (WebSocket)   │  │
+│  └──────────────┘  └──────┬───────┘  └───────┬───────┘  │
+│                           │                  │           │
+│                    ┌──────┴───────┐   ┌──────┴───────┐  │
+│                    │ Dagger       │   │ K8s Watchers  │  │
+│                    │ Containers   │   │ JSONL Tailer  │  │
+│                    │ running ttyd │   │ Goss Checks   │  │
+│                    └──────────────┘   └──────────────┘  │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Routes:**
+- `GET /` — serves the Svelte presentation app
+- `/terminal/:env/*` — reverse proxies to the ttyd instance running inside the Dagger container for that environment (HTTP + WebSocket upgrade)
+- `WS /ws/events` — streams event bridge events to the frontend for reactive animations
+- `GET /api/environments` — lists available demo environments and their readiness status
+- `POST /api/environments/:env/start` — triggers Dagger to spin up a specific demo environment
+- `POST /api/environments/:env/teardown` — tears down a demo environment
+
+**Terminal Proxy Details:**
+- Each Dagger demo container runs **ttyd** (lightweight terminal server) — it handles PTY allocation, xterm.js client, and WebSocket transport natively
+- The Go backend reverse-proxies `/terminal/:env/` to the ttyd port inside the corresponding Dagger container
+- The Svelte frontend embeds each terminal as an iframe or directly uses ttyd's xterm.js client via the proxied path
+- Multiple simultaneous terminals are supported (each env runs its own ttyd instance on a unique port)
+- ttyd stdout can be teed to the JSONL command log via a shell wrapper so typed commands become events
+
+**Event Bridge Details:**
+- Runs as goroutines within the same Go process
+- K8s informers/watches for RBAC, NetworkPolicy, Pod, and Kyverno policy resources
+- JSONL file tailer (fsnotify or tail -f equivalent) for command log events
+- Optional Goss runner for connectivity/state checks
+- All events are fanned out to connected WebSocket clients on `/ws/events`
+
+### Demo Runtime — Everything in Dagger
+- **All environments run inside Dagger containers** — the Go backend, the K8s clusters (k3s), the build pipeline
+- Dagger pipelines define each demo environment as a composable module
+- Environments can be pre-warmed in parallel before the talk starts
+- Each demo section gets its own isolated k3s instance inside a Dagger container
+- The Go backend itself runs in Dagger — nothing is installed locally, everything is a `dagger call`
+- Development, building, and running are all `dagger call` commands — no local Go, Node, npm, etc. required
+
+**Example `dagger call` workflow:**
+```bash
+# Development — hot-reload frontend + backend
+dagger call dev up
+
+# Build everything
+dagger call build
+
+# Pre-warm all demo environments before the talk
+dagger call environments up
+
+# Run the full presentation (backend + frontend + all envs)
+dagger call present up
+
+# Tear down everything
+dagger call environments down
+```
+
+**Environment lifecycle:**
+```
+[Pre-talk] `dagger call environments up` spins up all environments in parallel
+    → k3s clusters boot inside Dagger containers
+    → base workloads deploy
+    → readiness checks pass
+    → environments report "ready" to Go backend
+
+[During talk] Presenter advances to RBAC section
+    → frontend connects terminal to rbac env
+    → event bridge starts watching rbac env's K8s API
+    → demo proceeds
+
+[Section end] Environment can be torn down or left running
+    → next environment was already pre-warmed
+```
 
 ### Command Log Watcher (JSONL)
 A system that logs executed commands to a JSONL file provides a second event source for the event bridge. This is useful in several ways:

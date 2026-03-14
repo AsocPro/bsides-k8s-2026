@@ -1,0 +1,8 @@
+{
+  "name": "bsides-k8s",
+  "engineVersion": "v0.19.11",
+  "sdk": {
+    "source": "go"
+  },
+  "source": ".dagger"
+}
