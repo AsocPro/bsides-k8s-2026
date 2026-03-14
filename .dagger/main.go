@@ -40,6 +40,7 @@ func (m *BsidesK8S) BuildBackend(
 		WithMountedCache("/go/pkg/mod", dag.CacheVolume("go-mod-cache")).
 		WithMountedCache("/root/.cache/go-build", dag.CacheVolume("go-build-cache")).
 		WithEnvVariable("CGO_ENABLED", "0").
+		WithExec([]string{"go", "mod", "tidy"}).
 		WithExec([]string{"go", "build", "-o", "server", "."}).
 		File("/app/server")
 }

@@ -1,29 +1,56 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
+	"time"
 )
 
 func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+
+	hub := NewEventHub()
+
+	// Start heartbeat
+	go hub.StartHeartbeat(ctx, 10*time.Second)
+
+	// Start JSONL watcher if configured
+	if jsonlPath := os.Getenv("JSONL_WATCH_PATH"); jsonlPath != "" {
+		watcher := NewJSONLWatcher(hub, jsonlPath)
+		go watcher.Watch(ctx)
+	}
+
 	mux := http.NewServeMux()
 
-	// WebSocket event bridge stub
-	mux.HandleFunc("/ws/events", handleEvents)
+	// Event bridge WebSocket
+	mux.Handle("/ws/events", hub)
 
-	// API stubs
+	// REST API for pushing events programmatically
+	mux.HandleFunc("POST /api/events", func(w http.ResponseWriter, r *http.Request) {
+		var evt Event
+		if err := decodeJSON(r.Body, &evt); err != nil {
+			http.Error(w, "invalid event", http.StatusBadRequest)
+			return
+		}
+		evt.Source = "api"
+		hub.Broadcast(evt)
+		w.WriteHeader(http.StatusAccepted)
+	})
+
+	// Environment API stubs
 	mux.HandleFunc("/api/environments", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"environments":[]}`))
 	})
 
 	// Terminal proxy: reverse proxy to ttyd instances
-	// TTYD_URLS is a comma-separated list of name=url pairs
-	// e.g. "demo=http://ttyd-demo:7681"
 	if ttydURLs := os.Getenv("TTYD_URLS"); ttydURLs != "" {
 		for _, entry := range strings.Split(ttydURLs, ",") {
 			parts := strings.SplitN(entry, "=", 2)
@@ -70,12 +97,14 @@ func main() {
 
 	addr := ":8080"
 	log.Printf("Backend listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+
+	server := &http.Server{Addr: addr, Handler: mux}
+	go func() {
+		<-ctx.Done()
+		server.Shutdown(context.Background())
+	}()
+
+	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
-}
-
-func handleEvents(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"event bridge not yet implemented"}`))
 }
