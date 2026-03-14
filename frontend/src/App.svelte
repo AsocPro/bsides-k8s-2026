@@ -11,7 +11,9 @@
   import RBACSlide from './slides/RBACSlide.svelte';
   import RBACDemoSlide from './slides/RBACDemoSlide.svelte';
   import PolicySlide from './slides/PolicySlide.svelte';
+  import PolicyDemoSlide from './slides/PolicyDemoSlide.svelte';
   import NetworkPolicySlide from './slides/NetworkPolicySlide.svelte';
+  import NetPolDemoSlide from './slides/NetPolDemoSlide.svelte';
   import FutureSlide from './slides/FutureSlide.svelte';
 
   onMount(() => {
@@ -22,7 +24,9 @@
       { component: RBACSlide, id: 'rbac' },
       { component: RBACDemoSlide, id: 'rbac-demo' },
       { component: PolicySlide, id: 'policy' },
+      { component: PolicyDemoSlide, id: 'policy-demo' },
       { component: NetworkPolicySlide, id: 'netpol' },
+      { component: NetPolDemoSlide, id: 'netpol-demo' },
       { component: FutureSlide, id: 'future' },
     ]);
 

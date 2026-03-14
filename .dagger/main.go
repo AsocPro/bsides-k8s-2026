@@ -6,6 +6,8 @@
 package main
 
 import (
+	"context"
+
 	"dagger/bsides-k-8-s/internal/dagger"
 )
 
@@ -62,7 +64,7 @@ func (m *BsidesK8S) Build(
 		WithDirectory("static", frontend)
 }
 
-// Terminal creates a ttyd container that serves a shell over HTTP/WebSocket
+// Terminal creates a basic ttyd container (no k8s) for simple shell demos
 func (m *BsidesK8S) Terminal(
 	// Name for this terminal environment
 	name string,
@@ -79,6 +81,32 @@ func (m *BsidesK8S) Terminal(
 			"bash",
 		}).
 		AsService()
+}
+
+// K8sTerminal creates a ttyd container connected to a k3s cluster for live demos
+func (m *BsidesK8S) K8sTerminal(
+	ctx context.Context,
+	// Name for this environment (used for service binding and terminal path)
+	name string,
+) (*dagger.Service, error) {
+	cluster := NewK3sCluster(name)
+	k3sSvc, err := cluster.Server().Start(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	demo := cluster.DemoContainer(name, k3sSvc)
+
+	return demo.
+		AsService(dagger.ContainerAsServiceOpts{
+			Args: []string{
+				"ttyd",
+				"--port", "7681",
+				"--writable",
+				"--base-path", "/terminal/" + name,
+				"bash",
+			},
+		}), nil
 }
 
 // Dev starts the development environment with Vite HMR, Go backend proxy, and a demo terminal
@@ -103,7 +131,7 @@ func (m *BsidesK8S) Dev(
 		WithDefaultArgs([]string{"npx", "vite", "--host", "0.0.0.0", "--port", "5173"}).
 		AsService()
 
-	// Demo terminal via ttyd
+	// Basic demo terminal (no k8s) for dev mode — fast startup
 	ttydDemo := m.Terminal("demo")
 
 	// Run pre-built backend binary proxying to Vite and ttyd
@@ -120,7 +148,49 @@ func (m *BsidesK8S) Dev(
 		AsService()
 }
 
-// Serve runs the production presentation with pre-built assets and a demo terminal
+// Present runs the full presentation with k3s-backed demo environments
+func (m *BsidesK8S) Present(
+	ctx context.Context,
+	// Frontend source directory
+	// +defaultPath="./frontend"
+	frontendSource *dagger.Directory,
+	// Backend source directory
+	// +defaultPath="./backend"
+	backendSource *dagger.Directory,
+) (*dagger.Service, error) {
+	binary := m.BuildBackend(backendSource)
+	static := m.BuildFrontend(frontendSource)
+
+	// Start k3s-backed demo terminals
+	rbacTerm, err := m.K8sTerminal(ctx, "rbac")
+	if err != nil {
+		return nil, err
+	}
+	netpolTerm, err := m.K8sTerminal(ctx, "netpol")
+	if err != nil {
+		return nil, err
+	}
+	policyTerm, err := m.K8sTerminal(ctx, "policy")
+	if err != nil {
+		return nil, err
+	}
+
+	return dag.Container().
+		From("alpine:latest").
+		WithFile("/app/server", binary).
+		WithDirectory("/app/static", static).
+		WithWorkdir("/app").
+		WithServiceBinding("ttyd-rbac", rbacTerm).
+		WithServiceBinding("ttyd-netpol", netpolTerm).
+		WithServiceBinding("ttyd-policy", policyTerm).
+		WithEnvVariable("STATIC_DIR", "/app/static").
+		WithEnvVariable("TTYD_URLS", "rbac=http://ttyd-rbac:7681,netpol=http://ttyd-netpol:7681,policy=http://ttyd-policy:7681").
+		WithExposedPort(8080).
+		WithDefaultArgs([]string{"/app/server"}).
+		AsService(), nil
+}
+
+// Serve runs the production presentation with pre-built assets and a basic demo terminal
 func (m *BsidesK8S) Serve(
 	// Frontend source directory
 	// +defaultPath="./frontend"
