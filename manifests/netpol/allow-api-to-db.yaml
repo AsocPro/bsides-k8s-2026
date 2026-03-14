@@ -1,0 +1,45 @@
+---
+# Allow API pods to send traffic to database pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-to-db
+  namespace: demo
+spec:
+  podSelector:
+    matchLabels:
+      tier: database
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: api
+      ports:
+        - port: 80
+---
+# Allow API pods to make DNS queries and reach the database
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-egress
+  namespace: demo
+spec:
+  podSelector:
+    matchLabels:
+      tier: api
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: database
+      ports:
+        - port: 80
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

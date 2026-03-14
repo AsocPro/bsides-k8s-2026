@@ -24,15 +24,26 @@ fi
 exec "$@"
 `
 
+// ClusterProfile defines what components a k3s cluster should have.
+type ClusterProfile string
+
+const (
+	ProfileBase    ClusterProfile = "base"    // Plain k3s, RBAC demos
+	ProfileKyverno ClusterProfile = "kyverno" // k3s + Kyverno for policy demos
+	ProfileNetpol  ClusterProfile = "netpol"  // k3s with network policy support for netpol demos
+)
+
 // K3sCluster holds the state for a k3s cluster running in Dagger.
 type K3sCluster struct {
 	Name        string
+	Profile     ClusterProfile
 	ConfigCache *dagger.CacheVolume
 	Container   *dagger.Container
+	Manifests   *dagger.Directory
 }
 
-// NewK3sCluster creates a new k3s cluster configuration.
-func NewK3sCluster(name string) *K3sCluster {
+// NewK3sCluster creates a new k3s cluster with the given profile.
+func NewK3sCluster(name string, profile ClusterProfile, manifests *dagger.Directory) *K3sCluster {
 	ccache := dag.CacheVolume("k3s_config_" + name)
 
 	ctr := dag.Container().
@@ -53,8 +64,10 @@ func NewK3sCluster(name string) *K3sCluster {
 
 	return &K3sCluster{
 		Name:        name,
+		Profile:     profile,
 		ConfigCache: ccache,
 		Container:   ctr,
+		Manifests:   manifests,
 	}
 }
 
@@ -71,7 +84,6 @@ func (k *K3sCluster) Server() *dagger.Service {
 }
 
 // Config returns the kubeconfig file for this cluster.
-// It polls until k3s has written the config.
 func (k *K3sCluster) Config() *dagger.File {
 	return dag.Container().
 		From("alpine").
@@ -84,30 +96,89 @@ func (k *K3sCluster) Config() *dagger.File {
 		File("k3s.yaml")
 }
 
-// KubectlContainer returns a container with kubectl configured to talk to this cluster.
-// Useful as a base for demo environment containers.
-func (k *K3sCluster) KubectlContainer() *dagger.Container {
-	return dag.Container().
-		From("bitnami/kubectl").
-		WithoutEntrypoint().
-		WithMountedCache("/cache/k3s", k.ConfigCache).
-		WithEnvVariable("CACHE", time.Now().String()).
-		WithFile("/.kube/config", k.Config(), dagger.ContainerWithFileOpts{Permissions: 0o644}).
-		WithEnvVariable("KUBECONFIG", "/.kube/config")
+// seedScript returns a shell script that waits for the cluster to be ready,
+// installs profile-specific components, and applies setup manifests.
+func (k *K3sCluster) seedScript() string {
+	base := `#!/bin/bash
+set -e
+
+echo "=== Waiting for cluster to be ready ==="
+until kubectl get nodes 2>/dev/null | grep -q " Ready"; do
+  echo "waiting for node..."
+  sleep 2
+done
+echo "=== Node ready ==="
+kubectl get nodes
+`
+
+	var profileSetup string
+	switch k.Profile {
+	case ProfileKyverno:
+		profileSetup = `
+echo "=== Installing Kyverno ==="
+kubectl create -f https://github.com/kyverno/kyverno/releases/download/v1.13.4/install.yaml || true
+
+echo "=== Waiting for Kyverno to be ready ==="
+kubectl -n kyverno rollout status deployment kyverno-admission-controller --timeout=120s
+kubectl -n kyverno rollout status deployment kyverno-background-controller --timeout=60s
+echo "=== Kyverno ready ==="
+`
+	case ProfileNetpol:
+		// k3s includes a built-in network policy controller by default
+		// Just verify it's working
+		profileSetup = `
+echo "=== Network policy controller is built-in to k3s ==="
+echo "=== Verifying kube-system pods ==="
+kubectl -n kube-system get pods
+`
+	default:
+		profileSetup = ""
+	}
+
+	manifests := `
+echo "=== Applying setup manifests ==="
+if [ -d /manifests ] && ls /manifests/*.yaml 1>/dev/null 2>&1; then
+  kubectl apply -f /manifests/
+  echo "=== Waiting for pods to be ready ==="
+  kubectl -n demo wait --for=condition=Ready pods --all --timeout=120s 2>/dev/null || true
+fi
+
+echo "=== Setup complete ==="
+kubectl -n demo get all 2>/dev/null || echo "no demo namespace resources"
+`
+
+	return base + profileSetup + manifests
 }
 
 // DemoContainer returns an Alpine container with kubectl, ttyd, and common tools,
-// wired to this k3s cluster. It runs ttyd so the terminal is accessible via the proxy.
+// wired to this k3s cluster. It runs the seed script, then starts ttyd.
 func (k *K3sCluster) DemoContainer(name string, svc *dagger.Service) *dagger.Container {
-	return dag.Container().
+	ctr := dag.Container().
 		From("alpine:latest").
 		WithExec([]string{"apk", "add", "--no-cache",
-			"ttyd", "bash", "curl", "jq",
-			"kubectl", // Alpine package for kubectl
+			"ttyd", "bash", "curl", "jq", "kubectl",
 		}).
 		WithServiceBinding(name, svc).
 		WithFile("/.kube/config", k.Config(), dagger.ContainerWithFileOpts{Permissions: 0o644}).
 		WithEnvVariable("KUBECONFIG", "/.kube/config").
-		WithEnvVariable("PS1", fmt.Sprintf("[%s] \\w $ ", name)).
-		WithExposedPort(7681)
+		WithEnvVariable("PS1", fmt.Sprintf("[%s] \\w $ ", name))
+
+	// Mount manifests for the demo section
+	if k.Manifests != nil {
+		ctr = ctr.WithDirectory("/manifests", k.Manifests)
+	}
+
+	// Run the seed script to set up the cluster
+	ctr = ctr.
+		WithNewFile("/usr/local/bin/seed.sh", k.seedScript(), dagger.ContainerWithNewFileOpts{
+			Permissions: 0o755,
+		}).
+		WithExec([]string{"bash", "/usr/local/bin/seed.sh"})
+
+	// Also copy manifests to home for easy access during demo
+	if k.Manifests != nil {
+		ctr = ctr.WithDirectory("/root/manifests", k.Manifests)
+	}
+
+	return ctr.WithExposedPort(7681)
 }

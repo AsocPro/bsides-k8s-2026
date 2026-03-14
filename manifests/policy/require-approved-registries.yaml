@@ -1,0 +1,23 @@
+---
+# Kyverno policy: only allow images from approved registries
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-approved-registries
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: check-registry
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - demo
+      validate:
+        message: "Images must come from an approved registry (docker.io, ghcr.io, quay.io, registry.k8s.io)."
+        pattern:
+          spec:
+            containers:
+              - image: "docker.io/* | ghcr.io/* | quay.io/* | registry.k8s.io/* | nginx* | alpine*"

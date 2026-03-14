@@ -1,0 +1,45 @@
+---
+# Allow frontend pods to send traffic to API pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-api
+  namespace: demo
+spec:
+  podSelector:
+    matchLabels:
+      tier: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: frontend
+      ports:
+        - port: 80
+---
+# Allow frontend pods to make DNS queries and reach the API
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-egress
+  namespace: demo
+spec:
+  podSelector:
+    matchLabels:
+      tier: frontend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: api
+      ports:
+        - port: 80
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

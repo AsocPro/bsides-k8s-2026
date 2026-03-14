@@ -83,13 +83,21 @@ func (m *BsidesK8S) Terminal(
 		AsService()
 }
 
-// K8sTerminal creates a ttyd container connected to a k3s cluster for live demos
+// K8sTerminal creates a ttyd container connected to a k3s cluster for live demos.
+// The cluster is configured based on the profile (base, kyverno, netpol) and
+// pre-seeded with the appropriate manifests.
 func (m *BsidesK8S) K8sTerminal(
 	ctx context.Context,
-	// Name for this environment (used for service binding and terminal path)
+	// Name for this environment
 	name string,
+	// Cluster profile: base, kyverno, or netpol
+	// +default="base"
+	profile string,
+	// Manifests to pre-load into the cluster
+	// +optional
+	manifests *dagger.Directory,
 ) (*dagger.Service, error) {
-	cluster := NewK3sCluster(name)
+	cluster := NewK3sCluster(name, ClusterProfile(profile), manifests)
 	k3sSvc, err := cluster.Server().Start(ctx)
 	if err != nil {
 		return nil, err
@@ -134,7 +142,6 @@ func (m *BsidesK8S) Dev(
 	// Basic demo terminal (no k8s) for dev mode — fast startup
 	ttydDemo := m.Terminal("demo")
 
-	// Run pre-built backend binary proxying to Vite and ttyd
 	return dag.Container().
 		From("alpine:latest").
 		WithFile("/app/server", binary).
@@ -148,7 +155,9 @@ func (m *BsidesK8S) Dev(
 		AsService()
 }
 
-// Present runs the full presentation with k3s-backed demo environments
+// Present runs the full presentation with k3s-backed demo environments.
+// Each demo section gets its own k3s cluster with the appropriate profile
+// and pre-seeded manifests.
 func (m *BsidesK8S) Present(
 	ctx context.Context,
 	// Frontend source directory
@@ -157,20 +166,27 @@ func (m *BsidesK8S) Present(
 	// Backend source directory
 	// +defaultPath="./backend"
 	backendSource *dagger.Directory,
+	// Manifests directory containing per-demo subdirectories (rbac/, policy/, netpol/)
+	// +defaultPath="./manifests"
+	manifestsDir *dagger.Directory,
 ) (*dagger.Service, error) {
 	binary := m.BuildBackend(backendSource)
 	static := m.BuildFrontend(frontendSource)
 
-	// Start k3s-backed demo terminals
-	rbacTerm, err := m.K8sTerminal(ctx, "rbac")
+	// RBAC demo: plain k3s + demo ServiceAccount
+	rbacTerm, err := m.K8sTerminal(ctx, "rbac", "base", manifestsDir.Directory("rbac"))
 	if err != nil {
 		return nil, err
 	}
-	netpolTerm, err := m.K8sTerminal(ctx, "netpol")
+
+	// Policy demo: k3s + Kyverno pre-installed
+	policyTerm, err := m.K8sTerminal(ctx, "policy", "kyverno", manifestsDir.Directory("policy"))
 	if err != nil {
 		return nil, err
 	}
-	policyTerm, err := m.K8sTerminal(ctx, "policy")
+
+	// Network policy demo: k3s with built-in netpol controller + 3-tier app
+	netpolTerm, err := m.K8sTerminal(ctx, "netpol", "netpol", manifestsDir.Directory("netpol"))
 	if err != nil {
 		return nil, err
 	}

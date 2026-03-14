@@ -1,0 +1,25 @@
+---
+# This pod runs as root — will be REJECTED by require-non-root policy
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-pod
+  namespace: demo
+spec:
+  containers:
+    - name: app
+      image: nginx:alpine
+---
+# This pod runs as non-root — will be ACCEPTED
+apiVersion: v1
+kind: Pod
+metadata:
+  name: good-pod
+  namespace: demo
+spec:
+  containers:
+    - name: app
+      image: nginx:alpine
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
