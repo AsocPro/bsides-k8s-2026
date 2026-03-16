@@ -19,7 +19,7 @@ metadata:
 spec:
   containers:
     - name: app
-      image: nginx:alpine
+      image: nginxinc/nginx-unprivileged:alpine
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+        runAsUser: 101

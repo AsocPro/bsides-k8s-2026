@@ -84,7 +84,7 @@ func (k *K3sCluster) Server() *dagger.Service {
 	return k.Container.AsService(dagger.ContainerAsServiceOpts{
 		Args: []string{
 			"sh", "-c",
-			"k3s server --debug --bind-address $(ip route | grep src | awk '{print $NF}') --disable traefik --disable metrics-server --egress-selector-mode=disabled --kube-apiserver-arg=feature-gates=KubeletInUserNamespace=true --kubelet-arg=feature-gates=KubeletInUserNamespace=true",
+			"k3s server --debug --bind-address $(ip route | grep src | awk '{print $NF}') --tls-san " + k.Name + " --disable traefik --disable metrics-server --egress-selector-mode=disabled --kube-apiserver-arg=feature-gates=KubeletInUserNamespace=true --kubelet-arg=feature-gates=KubeletInUserNamespace=true",
 		},
 		InsecureRootCapabilities: true,
 		UseEntrypoint:            true,
@@ -103,6 +103,8 @@ func (k *K3sCluster) Config() *dagger.File {
 			`while [ ! -f "/cache/k3s/k3s.yaml" ]; do echo "waiting for k3s config..." && sleep 0.5; done`,
 		}).
 		WithExec([]string{"cp", "/cache/k3s/k3s.yaml", "k3s.yaml"}).
+		// Rewrite server address to use the service binding hostname
+		WithExec([]string{"sed", "-i", "s|server: https://.*:6443|server: https://" + k.Name + ":6443|", "k3s.yaml"}).
 		File("k3s.yaml")
 }
 
@@ -148,7 +150,15 @@ kubectl -n kube-system get pods
 	manifests := `
 echo "=== Applying setup manifests ==="
 if [ -d /manifests ] && ls /manifests/*.yaml 1>/dev/null 2>&1; then
-  kubectl apply -f /manifests/
+  # Create demo namespace and wait for its default service account
+  kubectl create namespace demo 2>/dev/null || true
+  echo "Waiting for demo namespace service account..."
+  until kubectl -n demo get serviceaccount default 2>/dev/null; do
+    sleep 1
+  done
+  # Apply all manifests (namespace creation is idempotent)
+  # Use || true because some resources may be intentionally denied by admission webhooks (e.g. Kyverno policy demos)
+  kubectl apply -f /manifests/ || true
   echo "=== Waiting for pods to be ready ==="
   kubectl -n demo wait --for=condition=Ready pods --all --timeout=120s 2>/dev/null || true
 fi
