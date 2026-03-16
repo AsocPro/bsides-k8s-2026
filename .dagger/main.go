@@ -73,14 +73,15 @@ func (m *BsidesK8S) Terminal(
 		From("alpine:latest").
 		WithExec([]string{"apk", "add", "--no-cache", "ttyd", "bash", "curl", "jq"}).
 		WithExposedPort(7681).
-		WithDefaultArgs([]string{
-			"ttyd",
-			"--port", "7681",
-			"--writable",
-			"--base-path", "/terminal/" + name,
-			"bash",
-		}).
-		AsService()
+		AsService(dagger.ContainerAsServiceOpts{
+			Args: []string{
+				"ttyd",
+				"--port", "7681",
+				"--writable",
+				"--base-path", "/terminal/" + name,
+				"bash",
+			},
+		})
 }
 
 // K8sTerminal creates a ttyd container connected to a k3s cluster for live demos.
@@ -108,11 +109,8 @@ func (m *BsidesK8S) K8sTerminal(
 	return demo.
 		AsService(dagger.ContainerAsServiceOpts{
 			Args: []string{
-				"ttyd",
-				"--port", "7681",
-				"--writable",
-				"--base-path", "/terminal/" + name,
-				"bash",
+				"bash", "-c",
+				"bash /usr/local/bin/seed.sh && exec ttyd --port 7681 --writable --base-path /terminal/" + name + " bash",
 			},
 		}), nil
 }
@@ -136,8 +134,9 @@ func (m *BsidesK8S) Dev(
 		WithMountedCache("/root/.npm", dag.CacheVolume("npm-cache")).
 		WithExec([]string{"npm", "install"}).
 		WithExposedPort(5173).
-		WithDefaultArgs([]string{"npx", "vite", "--host", "0.0.0.0", "--port", "5173"}).
-		AsService()
+		AsService(dagger.ContainerAsServiceOpts{
+			Args: []string{"npx", "vite", "--host", "0.0.0.0", "--port", "5173"},
+		})
 
 	// Basic demo terminal (no k8s) for dev mode — fast startup
 	ttydDemo := m.Terminal("demo")
@@ -151,8 +150,9 @@ func (m *BsidesK8S) Dev(
 		WithEnvVariable("VITE_DEV_URL", "http://vite:5173").
 		WithEnvVariable("TTYD_URLS", "demo=http://ttyd-demo:7681").
 		WithExposedPort(8080).
-		WithDefaultArgs([]string{"/app/server"}).
-		AsService()
+		AsService(dagger.ContainerAsServiceOpts{
+			Args: []string{"/app/server"},
+		})
 }
 
 // Present runs the full presentation with k3s-backed demo environments.
@@ -202,8 +202,28 @@ func (m *BsidesK8S) Present(
 		WithEnvVariable("STATIC_DIR", "/app/static").
 		WithEnvVariable("TTYD_URLS", "rbac=http://ttyd-rbac:7681,netpol=http://ttyd-netpol:7681,policy=http://ttyd-policy:7681").
 		WithExposedPort(8080).
-		WithDefaultArgs([]string{"/app/server"}).
-		AsService(), nil
+		AsService(dagger.ContainerAsServiceOpts{
+			Args: []string{"/app/server"},
+		}), nil
+}
+
+// K3sDebug gives you an interactive terminal inside the k3s container for debugging.
+// Note: cgroups will be read-only in terminal mode, but you can still run k3s
+// manually to see the actual error output.
+// Usage: dagger call k3s-debug terminal
+func (m *BsidesK8S) K3sDebug(
+	// Name for this cluster
+	// +default="debug"
+	name string,
+	// Cluster profile: base, kyverno, or netpol
+	// +default="base"
+	profile string,
+	// Manifests to pre-load
+	// +optional
+	manifests *dagger.Directory,
+) *dagger.Container {
+	cluster := NewK3sCluster(name, ClusterProfile(profile), manifests)
+	return cluster.Container
 }
 
 // Serve runs the production presentation with pre-built assets and a basic demo terminal
@@ -229,6 +249,7 @@ func (m *BsidesK8S) Serve(
 		WithEnvVariable("STATIC_DIR", "/app/static").
 		WithEnvVariable("TTYD_URLS", "demo=http://ttyd-demo:7681").
 		WithExposedPort(8080).
-		WithDefaultArgs([]string{"/app/server"}).
-		AsService()
+		AsService(dagger.ContainerAsServiceOpts{
+			Args: []string{"/app/server"},
+		})
 }

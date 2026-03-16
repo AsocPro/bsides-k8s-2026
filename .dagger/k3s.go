@@ -25,6 +25,10 @@ if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
   echo "[$(date -Iseconds)] [CgroupV2 Fix] Done"
 fi
 
+if [ ! -e /dev/kmsg ]; then
+  ln -s /dev/console /dev/kmsg
+fi
+
 exec "$@"
 `
 
@@ -80,7 +84,7 @@ func (k *K3sCluster) Server() *dagger.Service {
 	return k.Container.AsService(dagger.ContainerAsServiceOpts{
 		Args: []string{
 			"sh", "-c",
-			"k3s server --debug --bind-address $(ip route | grep src | awk '{print $NF}') --disable traefik --disable metrics-server --egress-selector-mode=disabled",
+			"k3s server --debug --bind-address $(ip route | grep src | awk '{print $NF}') --disable traefik --disable metrics-server --egress-selector-mode=disabled --kube-apiserver-arg=feature-gates=KubeletInUserNamespace=true --kubelet-arg=feature-gates=KubeletInUserNamespace=true",
 		},
 		InsecureRootCapabilities: true,
 		UseEntrypoint:            true,
@@ -88,6 +92,8 @@ func (k *K3sCluster) Server() *dagger.Service {
 }
 
 // Config returns the kubeconfig file for this cluster.
+// This creates a build container that polls the config cache volume until
+// k3s writes k3s.yaml — it must be called AFTER Server().Start(ctx).
 func (k *K3sCluster) Config() *dagger.File {
 	return dag.Container().
 		From("alpine").
@@ -155,7 +161,9 @@ kubectl -n demo get all 2>/dev/null || echo "no demo namespace resources"
 }
 
 // DemoContainer returns an Alpine container with kubectl, ttyd, and common tools,
-// wired to this k3s cluster. It runs the seed script, then starts ttyd.
+// wired to this k3s cluster. The seed script and ttyd are started together as
+// the service entrypoint — seed must NOT be a WithExec build step because it
+// needs the live k3s service which only exists at service runtime.
 func (k *K3sCluster) DemoContainer(name string, svc *dagger.Service) *dagger.Container {
 	ctr := dag.Container().
 		From("alpine:latest").
@@ -172,17 +180,15 @@ func (k *K3sCluster) DemoContainer(name string, svc *dagger.Service) *dagger.Con
 		ctr = ctr.WithDirectory("/manifests", k.Manifests)
 	}
 
-	// Run the seed script to set up the cluster
-	ctr = ctr.
-		WithNewFile("/usr/local/bin/seed.sh", k.seedScript(), dagger.ContainerWithNewFileOpts{
-			Permissions: 0o755,
-		}).
-		WithExec([]string{"bash", "/usr/local/bin/seed.sh"})
-
 	// Also copy manifests to home for easy access during demo
 	if k.Manifests != nil {
 		ctr = ctr.WithDirectory("/root/manifests", k.Manifests)
 	}
+
+	// Install the seed script (no WithExec — it runs at service start)
+	ctr = ctr.WithNewFile("/usr/local/bin/seed.sh", k.seedScript(), dagger.ContainerWithNewFileOpts{
+		Permissions: 0o755,
+	})
 
 	return ctr.WithExposedPort(7681)
 }
