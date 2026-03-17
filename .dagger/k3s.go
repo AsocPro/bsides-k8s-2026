@@ -29,6 +29,10 @@ if [ ! -e /dev/kmsg ]; then
   ln -s /dev/console /dev/kmsg
 fi
 
+# Make all mounts shared so that containers spawned by kubelet
+# (e.g. Calico) can access /sys/fs/bpf, /sys/fs/cgroup, etc.
+mount --make-rshared / 2>/dev/null || true
+
 exec "$@"
 `
 
@@ -79,12 +83,32 @@ func NewK3sCluster(name string, profile ClusterProfile, manifests *dagger.Direct
 	}
 }
 
+// serverArgs returns the k3s server command line, adjusted per profile.
+func (k *K3sCluster) serverArgs() string {
+	base := "k3s server --debug" +
+		" --bind-address $(ip route | grep src | awk '{print $NF}')" +
+		" --tls-san " + k.Name +
+		" --disable traefik --disable metrics-server" +
+		" --egress-selector-mode=disabled" +
+		" --kube-apiserver-arg=feature-gates=KubeletInUserNamespace=true" +
+		" --kubelet-arg=feature-gates=KubeletInUserNamespace=true"
+
+	if k.Profile == ProfileNetpol {
+		// Disable flannel and the built-in network policy controller —
+		// we install Calico instead, which handles both CNI and
+		// NetworkPolicy enforcement.
+		base += " --flannel-backend=none --disable-network-policy"
+	}
+
+	return base
+}
+
 // Server returns the k3s server as a Dagger service.
 func (k *K3sCluster) Server() *dagger.Service {
 	return k.Container.AsService(dagger.ContainerAsServiceOpts{
 		Args: []string{
 			"sh", "-c",
-			"k3s server --debug --bind-address $(ip route | grep src | awk '{print $NF}') --tls-san " + k.Name + " --disable traefik --disable metrics-server --egress-selector-mode=disabled --kube-apiserver-arg=feature-gates=KubeletInUserNamespace=true --kubelet-arg=feature-gates=KubeletInUserNamespace=true",
+			k.serverArgs(),
 		},
 		InsecureRootCapabilities: true,
 		UseEntrypoint:            true,
@@ -111,9 +135,25 @@ func (k *K3sCluster) Config() *dagger.File {
 // seedScript returns a shell script that waits for the cluster to be ready,
 // installs profile-specific components, and applies setup manifests.
 func (k *K3sCluster) seedScript() string {
+	// For netpol profile, Calico must be installed before the node becomes Ready
+	// because it provides the CNI plugin (flannel is disabled).
+	var preNodeSetup string
+	if k.Profile == ProfileNetpol {
+		preNodeSetup = `
+echo "=== Waiting for API server ==="
+until kubectl get nodes 2>/dev/null; do
+  echo "waiting for API server..."
+  sleep 2
+done
+
+echo "=== Installing Calico (CNI + NetworkPolicy) ==="
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.3/manifests/calico.yaml || true
+`
+	}
+
 	base := `#!/bin/bash
 set -e
-
+` + preNodeSetup + `
 echo "=== Waiting for cluster to be ready ==="
 until kubectl get nodes 2>/dev/null | grep -q " Ready"; do
   echo "waiting for node..."
@@ -125,6 +165,15 @@ kubectl get nodes
 
 	var profileSetup string
 	switch k.Profile {
+	case ProfileNetpol:
+		// Calico was installed above before node ready. Wait for it to be fully operational.
+		profileSetup = `
+echo "=== Waiting for Calico to be ready ==="
+kubectl -n kube-system rollout status daemonset calico-node --timeout=120s
+kubectl -n kube-system rollout status deployment calico-kube-controllers --timeout=120s
+echo "=== Calico ready ==="
+kubectl -n kube-system get pods
+`
 	case ProfileKyverno:
 		profileSetup = `
 echo "=== Installing Kyverno ==="
@@ -135,16 +184,17 @@ kubectl -n kyverno rollout status deployment kyverno-admission-controller --time
 kubectl -n kyverno rollout status deployment kyverno-background-controller --timeout=60s
 echo "=== Kyverno ready ==="
 `
-	case ProfileNetpol:
-		// k3s includes a built-in network policy controller by default
-		// Just verify it's working
-		profileSetup = `
-echo "=== Network policy controller is built-in to k3s ==="
-echo "=== Verifying kube-system pods ==="
-kubectl -n kube-system get pods
-`
 	default:
 		profileSetup = ""
+	}
+
+	// For netpol profile, only apply setup.yaml so the network policies
+	// (deny-all, allow-*) are left for the presenter to apply live.
+	var applyCmd string
+	if k.Profile == ProfileNetpol {
+		applyCmd = "kubectl apply -f /manifests/setup.yaml || true"
+	} else {
+		applyCmd = "kubectl apply -f /manifests/ || true"
 	}
 
 	manifests := `
@@ -156,9 +206,9 @@ if [ -d /manifests ] && ls /manifests/*.yaml 1>/dev/null 2>&1; then
   until kubectl -n demo get serviceaccount default 2>/dev/null; do
     sleep 1
   done
-  # Apply all manifests (namespace creation is idempotent)
+  # Apply manifests
   # Use || true because some resources may be intentionally denied by admission webhooks (e.g. Kyverno policy demos)
-  kubectl apply -f /manifests/ || true
+  ` + applyCmd + `
   echo "=== Waiting for pods to be ready ==="
   kubectl -n demo wait --for=condition=Ready pods --all --timeout=120s 2>/dev/null || true
 fi

@@ -2,6 +2,7 @@
   import Slide from '../lib/Slide.svelte';
   import SplitLayout from '../lib/SplitLayout.svelte';
   import Terminal from '../lib/Terminal.svelte';
+  import DemoStep from '../lib/DemoStep.svelte';
 </script>
 
 <Slide padding={false}>
@@ -13,27 +14,43 @@
   <div class="flex-1 min-h-0 px-8 pb-8">
     <SplitLayout ratio="2fr 3fr">
       {#snippet left()}
-        <div class="space-y-4 text-sm text-neutral-400 pt-4">
-          <div class="p-3 rounded-lg bg-neutral-800/50 border border-neutral-700/50">
-            <p class="text-red-400 font-mono text-xs mb-1">Step 1</p>
-            <p>Deploy 3-tier app: frontend, API, database</p>
-          </div>
-          <div class="p-3 rounded-lg bg-neutral-800/50 border border-neutral-700/50">
-            <p class="text-red-400 font-mono text-xs mb-1">Step 2</p>
-            <p>Show frontend can reach database directly — the problem</p>
-          </div>
-          <div class="p-3 rounded-lg bg-neutral-800/50 border border-neutral-700/50">
-            <p class="text-red-400 font-mono text-xs mb-1">Step 3</p>
-            <p>Apply default-deny — everything goes dark</p>
-          </div>
-          <div class="p-3 rounded-lg bg-neutral-800/50 border border-neutral-700/50">
-            <p class="text-red-400 font-mono text-xs mb-1">Step 4</p>
-            <p>Restore allowed paths one by one</p>
-          </div>
-          <div class="p-3 rounded-lg bg-neutral-800/50 border border-neutral-700/50">
-            <p class="text-red-400 font-mono text-xs mb-1">Step 5</p>
-            <p>Frontend → database still blocked — blast radius contained</p>
-          </div>
+        <div class="space-y-2 text-sm pt-4 overflow-y-auto">
+          <DemoStep step={1} color="red"
+            label="Show the running 3-tier app"
+            commands={[
+              'kubectl -n demo get pods,svc',
+            ]}
+          />
+          <DemoStep step={2} color="red"
+            label="Everything can talk to everything — the problem"
+            commands={[
+              'kubectl -n demo exec deployment/frontend -- curl -s --max-time 3 api',
+              'kubectl -n demo exec deployment/frontend -- curl -s --max-time 3 database',
+              'kubectl -n demo exec deployment/api -- curl -s --max-time 3 database',
+            ]}
+          />
+          <DemoStep step={3} color="red"
+            label="Apply default-deny — everything goes dark"
+            commands={[
+              'kubectl apply -f /root/manifests/deny-all.yaml',
+              'kubectl -n demo exec deployment/frontend -- curl -s --max-time 3 api',
+            ]}
+          />
+          <DemoStep step={4} color="red"
+            label="Restore allowed paths one by one"
+            commands={[
+              'kubectl apply -f /root/manifests/allow-frontend-to-api.yaml',
+              'kubectl apply -f /root/manifests/allow-api-to-db.yaml',
+              'kubectl -n demo exec deployment/frontend -- curl -s --max-time 3 api',
+              'kubectl -n demo exec deployment/api -- curl -s --max-time 3 database',
+            ]}
+          />
+          <DemoStep step={5} color="red"
+            label="Frontend → database still blocked — blast radius contained"
+            commands={[
+              'kubectl -n demo exec deployment/frontend -- curl -s --max-time 3 database',
+            ]}
+          />
         </div>
       {/snippet}
       {#snippet right()}

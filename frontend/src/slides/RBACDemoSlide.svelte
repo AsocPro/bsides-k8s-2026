@@ -2,6 +2,7 @@
   import Slide from '../lib/Slide.svelte';
   import SplitLayout from '../lib/SplitLayout.svelte';
   import Terminal from '../lib/Terminal.svelte';
+  import DemoStep from '../lib/DemoStep.svelte';
 </script>
 
 <Slide padding={false}>
@@ -13,23 +14,61 @@
   <div class="flex-1 min-h-0 px-8 pb-8">
     <SplitLayout ratio="2fr 3fr">
       {#snippet left()}
-        <div class="space-y-4 text-sm text-neutral-400 pt-4">
-          <div class="p-3 rounded-lg bg-neutral-800/50 border border-neutral-700/50">
-            <p class="text-cyan-400 font-mono text-xs mb-1">Step 1</p>
-            <p>Try listing pods with no permissions</p>
-          </div>
-          <div class="p-3 rounded-lg bg-neutral-800/50 border border-neutral-700/50">
-            <p class="text-cyan-400 font-mono text-xs mb-1">Step 2</p>
-            <p>Create a Role allowing pod access</p>
-          </div>
-          <div class="p-3 rounded-lg bg-neutral-800/50 border border-neutral-700/50">
-            <p class="text-cyan-400 font-mono text-xs mb-1">Step 3</p>
-            <p>Bind the role and retry</p>
-          </div>
-          <div class="p-3 rounded-lg bg-neutral-800/50 border border-neutral-700/50">
-            <p class="text-cyan-400 font-mono text-xs mb-1">Step 4</p>
-            <p>Try deleting — least privilege in action</p>
-          </div>
+        <div class="space-y-2 text-sm pt-4 overflow-y-auto">
+          <DemoStep step={1} color="cyan"
+            label="Try listing pods with no permissions"
+            commands={[
+              'kubectl --as=system:serviceaccount:demo:demo-user -n demo get pods',
+            ]}
+          />
+          <DemoStep step={2} color="cyan"
+            label="Create a Role allowing pod access"
+            commands={[
+              `kubectl apply -f - <<'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-reader
+  namespace: demo
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+EOF`,
+            ]}
+          />
+          <DemoStep step={3} color="cyan"
+            label="Bind the role to demo-user"
+            commands={[
+              `kubectl apply -f - <<'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-pods
+  namespace: demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-reader
+subjects:
+- kind: ServiceAccount
+  name: demo-user
+  namespace: demo
+EOF`,
+            ]}
+          />
+          <DemoStep step={4} color="cyan"
+            label="Retry — should now succeed"
+            commands={[
+              'kubectl --as=system:serviceaccount:demo:demo-user -n demo get pods',
+            ]}
+          />
+          <DemoStep step={5} color="cyan"
+            label="Try deleting — least privilege in action"
+            commands={[
+              'kubectl --as=system:serviceaccount:demo:demo-user -n demo delete pod web',
+            ]}
+          />
         </div>
       {/snippet}
       {#snippet right()}
