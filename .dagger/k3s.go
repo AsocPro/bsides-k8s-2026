@@ -188,14 +188,9 @@ echo "=== Kyverno ready ==="
 		profileSetup = ""
 	}
 
-	// For netpol profile, only apply setup.yaml so the network policies
-	// (deny-all, allow-*) are left for the presenter to apply live.
-	var applyCmd string
-	if k.Profile == ProfileNetpol {
-		applyCmd = "kubectl apply -f /manifests/setup.yaml || true"
-	} else {
-		applyCmd = "kubectl apply -f /manifests/ || true"
-	}
+	// Only apply setup.yaml at startup — other manifests in each profile
+	// directory are applied live by the presenter during the demo steps.
+	applyCmd := "kubectl apply -f /manifests/setup.yaml || true"
 
 	manifests := `
 echo "=== Applying setup manifests ==="

@@ -1,0 +1,17 @@
+command:
+  policy-require-non-root:
+    exec: "kubectl --kubeconfig $KUBECONFIG_POLICY get clusterpolicy require-non-root"
+    exit-status: 0
+    timeout: 5000
+  policy-require-approved-registries:
+    exec: "kubectl --kubeconfig $KUBECONFIG_POLICY get clusterpolicy require-approved-registries"
+    exit-status: 0
+    timeout: 5000
+  probe-root-container-blocked:
+    exec: "kubectl --kubeconfig $KUBECONFIG_POLICY -n demo run probe-root --image=nginx --restart=Never --dry-run=server -o yaml"
+    exit-status: 1
+    timeout: 5000
+  probe-nonroot-container-allowed:
+    exec: "kubectl --kubeconfig $KUBECONFIG_POLICY -n demo run probe-nonroot --image=nginx --restart=Never --dry-run=server -o yaml --overrides='{\"spec\":{\"containers\":[{\"name\":\"probe-nonroot\",\"image\":\"nginx\",\"securityContext\":{\"runAsNonRoot\":true,\"runAsUser\":1000}}]}}'"
+    exit-status: 0
+    timeout: 5000

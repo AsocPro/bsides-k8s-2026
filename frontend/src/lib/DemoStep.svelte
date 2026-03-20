@@ -4,13 +4,20 @@
     label,
     commands = [],
     color = 'cyan',
+    expanded = false,
+    ontoggle,
   } = $props();
 
-  let expanded = $state(false);
   let copiedIndex = $state(-1);
 
   function toggle() {
-    if (commands.length > 0) expanded = !expanded;
+    if (commands.length > 0) {
+      if (ontoggle) {
+        ontoggle(step);
+      } else {
+        expanded = !expanded;
+      }
+    }
   }
 
   async function copy(text, index) {

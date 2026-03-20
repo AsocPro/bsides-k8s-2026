@@ -1,0 +1,13 @@
+command:
+  conn-frontend-to-api:
+    exec: "kubectl --kubeconfig $KUBECONFIG_NETPOL -n demo exec deployment/frontend -- curl -s --max-time 2 -o /dev/null -w '%{http_code}' api"
+    exit-status: 0
+    timeout: 5000
+  conn-frontend-to-database:
+    exec: "kubectl --kubeconfig $KUBECONFIG_NETPOL -n demo exec deployment/frontend -- curl -s --max-time 2 -o /dev/null -w '%{http_code}' database"
+    exit-status: 0
+    timeout: 5000
+  conn-api-to-database:
+    exec: "kubectl --kubeconfig $KUBECONFIG_NETPOL -n demo exec deployment/api -- curl -s --max-time 2 -o /dev/null -w '%{http_code}' database"
+    exit-status: 0
+    timeout: 5000

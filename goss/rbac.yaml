@@ -1,0 +1,37 @@
+command:
+  can-i-get-pods:
+    exec: "kubectl --kubeconfig $KUBECONFIG_RBAC auth can-i get pods --as=system:serviceaccount:demo:demo-user -n demo"
+    exit-status: 0
+    timeout: 5000
+  can-i-create-pods:
+    exec: "kubectl --kubeconfig $KUBECONFIG_RBAC auth can-i create pods --as=system:serviceaccount:demo:demo-user -n demo"
+    exit-status: 0
+    timeout: 5000
+  can-i-delete-pods:
+    exec: "kubectl --kubeconfig $KUBECONFIG_RBAC auth can-i delete pods --as=system:serviceaccount:demo:demo-user -n demo"
+    exit-status: 0
+    timeout: 5000
+  can-i-get-roles:
+    exec: "kubectl --kubeconfig $KUBECONFIG_RBAC auth can-i get roles --as=system:serviceaccount:demo:demo-user -n demo"
+    exit-status: 0
+    timeout: 5000
+  can-i-create-roles:
+    exec: "kubectl --kubeconfig $KUBECONFIG_RBAC auth can-i create roles --as=system:serviceaccount:demo:demo-user -n demo"
+    exit-status: 0
+    timeout: 5000
+  can-i-delete-roles:
+    exec: "kubectl --kubeconfig $KUBECONFIG_RBAC auth can-i delete roles --as=system:serviceaccount:demo:demo-user -n demo"
+    exit-status: 0
+    timeout: 5000
+  can-i-get-rolebindings:
+    exec: "kubectl --kubeconfig $KUBECONFIG_RBAC auth can-i get rolebindings --as=system:serviceaccount:demo:demo-user -n demo"
+    exit-status: 0
+    timeout: 5000
+  can-i-create-rolebindings:
+    exec: "kubectl --kubeconfig $KUBECONFIG_RBAC auth can-i create rolebindings --as=system:serviceaccount:demo:demo-user -n demo"
+    exit-status: 0
+    timeout: 5000
+  can-i-delete-rolebindings:
+    exec: "kubectl --kubeconfig $KUBECONFIG_RBAC auth can-i delete rolebindings --as=system:serviceaccount:demo:demo-user -n demo"
+    exit-status: 0
+    timeout: 5000

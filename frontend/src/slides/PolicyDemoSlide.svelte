@@ -3,6 +3,12 @@
   import SplitLayout from '../lib/SplitLayout.svelte';
   import Terminal from '../lib/Terminal.svelte';
   import DemoStep from '../lib/DemoStep.svelte';
+  import StatePanel from '../lib/StatePanel.svelte';
+  import PolicyGate from '../lib/PolicyGate.svelte';
+  import { policyState } from '../lib/stores/stateCheck.js';
+
+  let openStep = $state(-1);
+  function toggle(step) { openStep = openStep === step ? -1 : step; }
 </script>
 
 <Slide padding={false}>
@@ -14,9 +20,15 @@
   <div class="flex-1 min-h-0 px-8 pb-8">
     <SplitLayout ratio="2fr 3fr">
       {#snippet left()}
-        <div class="space-y-2 text-sm pt-4 overflow-y-auto">
+        <div class="flex flex-col gap-2 text-sm pt-4 h-full min-h-0">
+          <StatePanel demo="policy" store={policyState} color="amber">
+            <PolicyGate data={$policyState.data} />
+          </StatePanel>
+
+          <div class="space-y-2 overflow-y-auto min-h-0 flex-1">
           <DemoStep step={1} color="amber"
             label="Inspect the active policies"
+            expanded={openStep === 1} ontoggle={toggle}
             commands={[
               'kubectl get clusterpolicy',
               'kubectl get clusterpolicy require-non-root -o yaml',
@@ -24,12 +36,14 @@
           />
           <DemoStep step={2} color="amber"
             label="Try deploying a root container — rejected"
+            expanded={openStep === 2} ontoggle={toggle}
             commands={[
               'kubectl run bad-pod --image=nginx:alpine -n demo',
             ]}
           />
           <DemoStep step={3} color="amber"
             label="Deploy a non-root container — accepted"
+            expanded={openStep === 3} ontoggle={toggle}
             commands={[
               `kubectl apply -f - <<'EOF'
 apiVersion: v1
@@ -50,6 +64,7 @@ EOF`,
           />
           <DemoStep step={4} color="amber"
             label="Test registry policy with unapproved image"
+            expanded={openStep === 4} ontoggle={toggle}
             commands={[
               `kubectl apply -f - <<'EOF'
 apiVersion: v1
@@ -81,6 +96,7 @@ spec:
 EOF`,
             ]}
           />
+          </div>
         </div>
       {/snippet}
       {#snippet right()}

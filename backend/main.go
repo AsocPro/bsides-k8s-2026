@@ -9,46 +9,23 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"time"
 )
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	hub := NewEventHub()
-
-	// Start heartbeat
-	go hub.StartHeartbeat(ctx, 10*time.Second)
-
-	// Start JSONL watcher if configured
-	if jsonlPath := os.Getenv("JSONL_WATCH_PATH"); jsonlPath != "" {
-		watcher := NewJSONLWatcher(hub, jsonlPath)
-		go watcher.Watch(ctx)
-	}
-
 	mux := http.NewServeMux()
-
-	// Event bridge WebSocket
-	mux.Handle("/ws/events", hub)
-
-	// REST API for pushing events programmatically
-	mux.HandleFunc("POST /api/events", func(w http.ResponseWriter, r *http.Request) {
-		var evt Event
-		if err := decodeJSON(r.Body, &evt); err != nil {
-			http.Error(w, "invalid event", http.StatusBadRequest)
-			return
-		}
-		evt.Source = "api"
-		hub.Broadcast(evt)
-		w.WriteHeader(http.StatusAccepted)
-	})
 
 	// Environment API stubs
 	mux.HandleFunc("/api/environments", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"environments":[]}`))
 	})
+
+	// State check API — runs goss tests against k3s clusters
+	stateChecker := &StateChecker{}
+	mux.HandleFunc("POST /api/state/{demo}", stateChecker.Handle)
 
 	// Terminal proxy: reverse proxy to ttyd instances
 	if ttydURLs := os.Getenv("TTYD_URLS"); ttydURLs != "" {

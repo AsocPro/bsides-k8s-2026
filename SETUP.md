@@ -71,15 +71,14 @@ Everything runs via `dagger call` — no local installs beyond Dagger itself.
 ```
 dagger call present
 ├── BuildFrontend   → Svelte 5 + Vite + Tailwind v4
-├── BuildBackend    → Go HTTP server (proxy, WebSocket event bridge)
-├── K8sTerminal "rbac"   → k3s (base profile) + RBAC manifests
-├── K8sTerminal "policy" → k3s (kyverno profile) + policy manifests
-├── K8sTerminal "netpol" → k3s (netpol profile) + network policy manifests
-└── Go server container
-    ├── /              → slides (static or Vite proxy)
-    ├── /terminal/*    → reverse proxy to ttyd containers
-    ├── /ws/events     → WebSocket event bridge
-    └── /api/events    → POST endpoint for events
+├── BuildBackend    → Go HTTP server (proxy, state-check API)
+├── K3sCluster "rbac"    → k3s (base profile) + RBAC manifests
+├── K3sCluster "policy"  → k3s (kyverno profile) + policy manifests
+├── K3sCluster "netpol"  → k3s (netpol profile) + network policy manifests
+└── Go server container (+ kubectl, goss, kubeconfigs)
+    ├── /                    → slides (static or Vite proxy)
+    ├── /terminal/*          → reverse proxy to ttyd containers
+    └── /api/state/{demo}   → POST: run goss checks, return JSON
 ```
 
 ### Cluster Profiles

@@ -1,9 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import SlideEngine from './lib/SlideEngine.svelte';
-  import EventOverlay from './lib/EventOverlay.svelte';
   import { slides, currentSlide, currentIndex } from './lib/slides.js';
-  import { connect, disconnect, send } from './lib/events.js';
 
   import TitleSlide from './slides/TitleSlide.svelte';
   import EvolutionSlide from './slides/EvolutionSlide.svelte';
@@ -29,18 +27,6 @@
       { component: NetPolDemoSlide, id: 'netpol-demo' },
       { component: FutureSlide, id: 'future' },
     ]);
-
-    // Connect to event bridge
-    connect();
-    return disconnect;
-  });
-
-  // Broadcast slide changes to the event bridge
-  $effect(() => {
-    const slide = $currentSlide;
-    if (slide) {
-      send('slide-change', { id: slide.id, index: $currentIndex });
-    }
   });
 </script>
 
@@ -53,8 +39,6 @@
     {/key}
   {/if}
 </SlideEngine>
-
-<EventOverlay />
 
 <style>
   .slide-container {

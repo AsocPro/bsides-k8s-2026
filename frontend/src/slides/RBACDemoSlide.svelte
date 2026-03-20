@@ -3,6 +3,12 @@
   import SplitLayout from '../lib/SplitLayout.svelte';
   import Terminal from '../lib/Terminal.svelte';
   import DemoStep from '../lib/DemoStep.svelte';
+  import StatePanel from '../lib/StatePanel.svelte';
+  import RBACMatrix from '../lib/RBACMatrix.svelte';
+  import { rbacState } from '../lib/stores/stateCheck.js';
+
+  let openStep = $state(-1);
+  function toggle(step) { openStep = openStep === step ? -1 : step; }
 </script>
 
 <Slide padding={false}>
@@ -14,15 +20,22 @@
   <div class="flex-1 min-h-0 px-8 pb-8">
     <SplitLayout ratio="2fr 3fr">
       {#snippet left()}
-        <div class="space-y-2 text-sm pt-4 overflow-y-auto">
+        <div class="flex flex-col gap-2 text-sm pt-4 h-full min-h-0">
+          <StatePanel demo="rbac" store={rbacState} color="cyan">
+            <RBACMatrix data={$rbacState.data} />
+          </StatePanel>
+
+          <div class="space-y-2 overflow-y-auto min-h-0 flex-1">
           <DemoStep step={1} color="cyan"
             label="Try listing pods with no permissions"
+            expanded={openStep === 1} ontoggle={toggle}
             commands={[
               'kubectl --as=system:serviceaccount:demo:demo-user -n demo get pods',
             ]}
           />
           <DemoStep step={2} color="cyan"
             label="Create a Role allowing pod access"
+            expanded={openStep === 2} ontoggle={toggle}
             commands={[
               `kubectl apply -f - <<'EOF'
 apiVersion: rbac.authorization.k8s.io/v1
@@ -39,6 +52,7 @@ EOF`,
           />
           <DemoStep step={3} color="cyan"
             label="Bind the role to demo-user"
+            expanded={openStep === 3} ontoggle={toggle}
             commands={[
               `kubectl apply -f - <<'EOF'
 apiVersion: rbac.authorization.k8s.io/v1
@@ -59,16 +73,19 @@ EOF`,
           />
           <DemoStep step={4} color="cyan"
             label="Retry — should now succeed"
+            expanded={openStep === 4} ontoggle={toggle}
             commands={[
               'kubectl --as=system:serviceaccount:demo:demo-user -n demo get pods',
             ]}
           />
           <DemoStep step={5} color="cyan"
             label="Try deleting — least privilege in action"
+            expanded={openStep === 5} ontoggle={toggle}
             commands={[
               'kubectl --as=system:serviceaccount:demo:demo-user -n demo delete pod web',
             ]}
           />
+          </div>
         </div>
       {/snippet}
       {#snippet right()}

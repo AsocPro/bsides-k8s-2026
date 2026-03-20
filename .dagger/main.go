@@ -157,7 +157,8 @@ func (m *BsidesK8S) Dev(
 
 // Present runs the full presentation with k3s-backed demo environments.
 // Each demo section gets its own k3s cluster with the appropriate profile
-// and pre-seeded manifests.
+// and pre-seeded manifests. The backend container additionally gets kubectl
+// and goss for the state-check API (POST /api/state/{demo}).
 func (m *BsidesK8S) Present(
 	ctx context.Context,
 	// Frontend source directory
@@ -169,42 +170,80 @@ func (m *BsidesK8S) Present(
 	// Manifests directory containing per-demo subdirectories (rbac/, policy/, netpol/)
 	// +defaultPath="./manifests"
 	manifestsDir *dagger.Directory,
+	// Goss test definitions
+	// +defaultPath="./goss"
+	gossDir *dagger.Directory,
 ) (*dagger.Service, error) {
 	binary := m.BuildBackend(backendSource)
 	static := m.BuildFrontend(frontendSource)
 
-	// RBAC demo: plain k3s + demo ServiceAccount
-	rbacTerm, err := m.K8sTerminal(ctx, "rbac", "base", manifestsDir.Directory("rbac"))
-	if err != nil {
-		return nil, err
+	// Create clusters inline so we can access both ttyd services AND kubeconfigs
+	type clusterInfo struct {
+		name    string
+		profile ClusterProfile
 	}
 
-	// Policy demo: k3s + Kyverno pre-installed
-	policyTerm, err := m.K8sTerminal(ctx, "policy", "kyverno", manifestsDir.Directory("policy"))
-	if err != nil {
-		return nil, err
+	clusters := []clusterInfo{
+		{name: "rbac", profile: ProfileBase},
+		{name: "policy", profile: ProfileKyverno},
+		{name: "netpol", profile: ProfileNetpol},
 	}
 
-	// Network policy demo: k3s with built-in netpol controller + 3-tier app
-	netpolTerm, err := m.K8sTerminal(ctx, "netpol", "netpol", manifestsDir.Directory("netpol"))
-	if err != nil {
-		return nil, err
+	ttydServices := make(map[string]*dagger.Service)
+	k3sServices := make(map[string]*dagger.Service)
+	kubeconfigs := make(map[string]*dagger.File)
+
+	for _, ci := range clusters {
+		cluster := NewK3sCluster(ci.name, ci.profile, manifestsDir.Directory(ci.name))
+		k3sSvc, err := cluster.Server().Start(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		k3sServices[ci.name] = k3sSvc
+		kubeconfigs[ci.name] = cluster.Config()
+
+		demo := cluster.DemoContainer(ci.name, k3sSvc)
+		ttydServices[ci.name] = demo.AsService(dagger.ContainerAsServiceOpts{
+			Args: []string{
+				"bash", "-c",
+				"bash /usr/local/bin/seed.sh && exec ttyd --port 7681 --writable --base-path /terminal/" + ci.name + " bash",
+			},
+		})
 	}
 
-	return dag.Container().
+	// Build the backend container with ttyd proxies + goss state checks
+	backend := dag.Container().
 		From("alpine:latest").
+		// Install kubectl, curl, and goss for state checks
+		WithExec([]string{"apk", "add", "--no-cache", "kubectl", "curl"}).
+		WithExec([]string{"sh", "-c", "curl -fsSL https://goss.rocks/install | GOSS_DST=/usr/local/bin sh"}).
 		WithFile("/app/server", binary).
 		WithDirectory("/app/static", static).
+		WithDirectory("/app/goss", gossDir).
 		WithWorkdir("/app").
-		WithServiceBinding("ttyd-rbac", rbacTerm).
-		WithServiceBinding("ttyd-netpol", netpolTerm).
-		WithServiceBinding("ttyd-policy", policyTerm).
+		// Bind ttyd services
+		WithServiceBinding("ttyd-rbac", ttydServices["rbac"]).
+		WithServiceBinding("ttyd-policy", ttydServices["policy"]).
+		WithServiceBinding("ttyd-netpol", ttydServices["netpol"]).
+		// Bind k3s services so kubeconfig hostnames resolve
+		WithServiceBinding("rbac", k3sServices["rbac"]).
+		WithServiceBinding("policy", k3sServices["policy"]).
+		WithServiceBinding("netpol", k3sServices["netpol"]).
+		// Mount kubeconfigs for goss tests
+		WithFile("/app/kubeconfig-rbac", kubeconfigs["rbac"]).
+		WithFile("/app/kubeconfig-policy", kubeconfigs["policy"]).
+		WithFile("/app/kubeconfig-netpol", kubeconfigs["netpol"]).
+		WithEnvVariable("KUBECONFIG_RBAC", "/app/kubeconfig-rbac").
+		WithEnvVariable("KUBECONFIG_POLICY", "/app/kubeconfig-policy").
+		WithEnvVariable("KUBECONFIG_NETPOL", "/app/kubeconfig-netpol").
 		WithEnvVariable("STATIC_DIR", "/app/static").
 		WithEnvVariable("TTYD_URLS", "rbac=http://ttyd-rbac:7681,netpol=http://ttyd-netpol:7681,policy=http://ttyd-policy:7681").
-		WithExposedPort(8080).
-		AsService(dagger.ContainerAsServiceOpts{
-			Args: []string{"/app/server"},
-		}), nil
+		WithExposedPort(8080)
+
+	return backend.AsService(dagger.ContainerAsServiceOpts{
+		Args: []string{"/app/server"},
+	}), nil
 }
 
 // K3sDebug gives you an interactive terminal inside the k3s container for debugging.

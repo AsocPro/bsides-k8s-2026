@@ -30,18 +30,18 @@ There are no separate lint or test commands — the project is presentation-focu
 
 ```
 Frontend (Svelte 5, frontend/)
-  └─ Slide engine with GSAP animations, embedded ttyd terminals, WebSocket event overlays
+  └─ Slide engine with GSAP animations, embedded ttyd terminals, reactive state panels
 
 Backend (Go 1.24, backend/)
   └─ HTTP server: serves static frontend (or proxies Vite in dev), reverse-proxies ttyd
-     terminals, runs WebSocket event hub (/ws/events), tails JSONL command logs
+     terminals, runs state-check API (POST /api/state/{demo}) via goss
 
 Dagger (.dagger/)
   └─ Orchestrates everything: builds frontend+backend, spins up k3s clusters per profile,
-     attaches ttyd terminals, pre-seeds manifests, wires services together
+     attaches ttyd terminals, wires goss+kubectl to backend, pre-seeds manifests
 ```
 
-**Event flow:** Terminal commands → JSONL file → Go watcher → WebSocket hub → Svelte stores → reactive overlays
+**State check flow:** Button click → `POST /api/state/{demo}` → backend execs `goss validate` → goss runs kubectl/curl checks in parallel → JSON response → frontend transforms into visualization
 
 **K3s cluster profiles** (defined in `.dagger/k3s.go`):
 - `base` — plain k3s for RBAC demos
@@ -56,6 +56,7 @@ Each cluster shares kubeconfig with its ttyd terminal via Dagger cache volumes.
 - **Dagger AsService:** Always use `AsService(Args)` — never `WithDefaultArgs` + `AsService` or `WithExec` + `AsService`.
 - **Frontend dev proxy:** In dev mode, backend reverse-proxies `/` to `http://vite:5173` via `VITE_DEV_URL` env var.
 - **Manifests pre-seeding:** `manifests/{rbac,policy,netpol}/` are applied to clusters before demos start, via the seed script in k3s.go.
+- **State checks:** Goss YAML files in `goss/` define per-demo checks. Backend container has kubectl + goss + kubeconfigs wired in `Present()`. Frontend stores transform goss JSON into structured visualization data.
 
 ## Podman Note
 
