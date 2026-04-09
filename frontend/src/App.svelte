@@ -6,6 +6,7 @@
   import TitleSlide from './slides/TitleSlide.svelte';
   import EvolutionSlide from './slides/EvolutionSlide.svelte';
   import K8sIntroSlide from './slides/K8sIntroSlide.svelte';
+  import K8sSecuritySlide from './slides/K8sSecuritySlide.svelte';
   import RBACSlide from './slides/RBACSlide.svelte';
   import RBACDemoSlide from './slides/RBACDemoSlide.svelte';
   import PolicySlide from './slides/PolicySlide.svelte';
@@ -19,6 +20,7 @@
       { component: TitleSlide, id: 'title' },
       { component: EvolutionSlide, id: 'evolution' },
       { component: K8sIntroSlide, id: 'k8s-intro' },
+      { component: K8sSecuritySlide, id: 'k8s-security' },
       { component: RBACSlide, id: 'rbac' },
       { component: RBACDemoSlide, id: 'rbac-demo' },
       { component: PolicySlide, id: 'policy' },

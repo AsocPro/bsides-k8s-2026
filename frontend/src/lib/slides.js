@@ -10,7 +10,17 @@ export const currentSlide = derived(
 
 export const totalSlides = derived(slides, ($slides) => $slides.length);
 
+// Sub-step support: slides can register a callback that consumes "next"
+// presses before the slide advances. Return true to consume the press.
+let _substepHandler = null;
+
+export function registerSubsteps(handler) {
+  _substepHandler = handler;
+  return () => { _substepHandler = null; };
+}
+
 export function next() {
+  if (_substepHandler && _substepHandler()) return;
   currentIndex.update((i) => {
     const total = getTotalSync();
     return Math.min(i + 1, total - 1);

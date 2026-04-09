@@ -15,11 +15,15 @@
   <h2 class="text-4xl font-bold text-white mb-2">Policy Agents</h2>
   <p class="text-neutral-500 mb-6">Making sure the changes are reasonable</p>
 
-  <div class="mb-6">
+  <div class="mb-6 space-y-3">
     <p class="text-neutral-300 leading-relaxed">
       RBAC controls <span class="text-cyan-400 font-semibold">who</span> can make changes.
+    </p>
+    <p class="text-neutral-300 leading-relaxed">
       Policy agents control <span class="text-amber-400 font-semibold">what</span> changes are allowed.
-      They intercept requests via admission webhooks before resources are created.
+    </p>
+    <p class="text-neutral-400 text-sm italic pl-8 mt-1">
+      Enforced via admission webhooks before resources hit the cluster.
     </p>
   </div>
 

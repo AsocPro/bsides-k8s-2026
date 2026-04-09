@@ -27,23 +27,31 @@
 
           <div class="space-y-2 overflow-y-auto min-h-0 flex-1">
           <DemoStep step={1} color="amber"
-            label="Inspect the active policies"
+            label="Apply Kyverno policies"
             expanded={openStep === 1} ontoggle={toggle}
             commands={[
+              'kubectl apply -f /root/manifests/require-non-root.yaml',
+              'kubectl apply -f /root/manifests/require-approved-registries.yaml',
               'kubectl get clusterpolicy',
-              'kubectl get clusterpolicy require-non-root -o yaml',
             ]}
           />
           <DemoStep step={2} color="amber"
-            label="Try deploying a root container — rejected"
+            label="Inspect a policy"
             expanded={openStep === 2} ontoggle={toggle}
+            commands={[
+              'kubectl get clusterpolicy require-non-root -o yaml',
+            ]}
+          />
+          <DemoStep step={3} color="amber"
+            label="Try deploying a root container — rejected"
+            expanded={openStep === 3} ontoggle={toggle}
             commands={[
               'kubectl run bad-pod --image=nginx:alpine -n demo',
             ]}
           />
-          <DemoStep step={3} color="amber"
+          <DemoStep step={4} color="amber"
             label="Deploy a non-root container — accepted"
-            expanded={openStep === 3} ontoggle={toggle}
+            expanded={openStep === 4} ontoggle={toggle}
             commands={[
               `kubectl apply -f - <<'EOF'
 apiVersion: v1
@@ -62,9 +70,9 @@ EOF`,
               'kubectl -n demo get pods',
             ]}
           />
-          <DemoStep step={4} color="amber"
+          <DemoStep step={5} color="amber"
             label="Test registry policy with unapproved image"
-            expanded={openStep === 4} ontoggle={toggle}
+            expanded={openStep === 5} ontoggle={toggle}
             commands={[
               `kubectl apply -f - <<'EOF'
 apiVersion: v1
