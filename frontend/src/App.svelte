@@ -4,6 +4,7 @@
   import { slides, currentSlide, currentIndex } from './lib/slides.js';
 
   import TitleSlide from './slides/TitleSlide.svelte';
+  import KoolAidSlide from './slides/KoolAidSlide.svelte';
   import EvolutionSlide from './slides/EvolutionSlide.svelte';
   import K8sIntroSlide from './slides/K8sIntroSlide.svelte';
   import K8sSecuritySlide from './slides/K8sSecuritySlide.svelte';
@@ -14,10 +15,12 @@
   import NetworkPolicySlide from './slides/NetworkPolicySlide.svelte';
   import NetPolDemoSlide from './slides/NetPolDemoSlide.svelte';
   import FutureSlide from './slides/FutureSlide.svelte';
+  import EndSlide from './slides/EndSlide.svelte';
 
   onMount(() => {
     slides.set([
       { component: TitleSlide, id: 'title' },
+      { component: KoolAidSlide, id: 'koolaid' },
       { component: EvolutionSlide, id: 'evolution' },
       { component: K8sIntroSlide, id: 'k8s-intro' },
       { component: K8sSecuritySlide, id: 'k8s-security' },
@@ -28,6 +31,7 @@
       { component: NetworkPolicySlide, id: 'netpol' },
       { component: NetPolDemoSlide, id: 'netpol-demo' },
       { component: FutureSlide, id: 'future' },
+      { component: EndSlide, id: 'end' },
     ]);
   });
 </script>

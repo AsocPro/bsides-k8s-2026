@@ -2,8 +2,11 @@
   import { onMount } from 'svelte';
   import { gsap } from 'gsap';
   import Slide from '../lib/Slide.svelte';
+  import { registerSubsteps } from '../lib/slides.js';
 
   let timeline;
+  let phase = 0;
+  const totalPhases = 3; // bare metal, VMs, containers
 
   const eras = [
     {
@@ -32,30 +35,49 @@
     },
   ];
 
+  function revealPhase(p) {
+    if (!timeline) return;
+    const cards = timeline.querySelectorAll('.era-card');
+    const connectors = timeline.querySelectorAll('.connector');
+    const idx = p - 1; // phase is 1-based
+
+    gsap.to(cards[idx], {
+      opacity: 1,
+      x: 0,
+      duration: 0.5,
+      ease: 'power2.out',
+    });
+
+    // Reveal the connector before this card (connector[0] is between card 0 and 1)
+    if (idx > 0 && connectors[idx - 1]) {
+      gsap.to(connectors[idx - 1], {
+        opacity: 1,
+        scaleX: 1,
+        duration: 0.3,
+        ease: 'power1.out',
+      });
+    }
+  }
+
   onMount(() => {
     if (!timeline) return;
     const cards = timeline.querySelectorAll('.era-card');
-    const connector = timeline.querySelectorAll('.connector');
-    const heading = timeline.querySelector('h2');
+    const connectors = timeline.querySelectorAll('.connector');
 
-    const tl = gsap.timeline();
-    tl.from(heading, { opacity: 0, y: -20, duration: 0.5 });
+    // Hide all cards and connectors initially
+    gsap.set(cards, { opacity: 0, x: -40 });
+    gsap.set(connectors, { opacity: 0, scaleX: 0 });
 
-    cards.forEach((card, i) => {
-      tl.from(card, {
-        opacity: 0,
-        x: -40,
-        duration: 0.5,
-        ease: 'power2.out',
-      }, `-=0.1`);
-      if (connector[i]) {
-        tl.from(connector[i], {
-          scaleX: 0,
-          duration: 0.3,
-          ease: 'power1.out',
-        }, '-=0.2');
+    const unregister = registerSubsteps(() => {
+      if (phase < totalPhases) {
+        phase++;
+        revealPhase(phase);
+        return true; // consumed
       }
+      return false; // let slide engine advance
     });
+
+    return unregister;
   });
 </script>
 
