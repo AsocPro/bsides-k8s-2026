@@ -7,9 +7,16 @@ package main
 
 import (
 	"context"
+	_ "embed"
 
 	"dagger/bsides-k-8-s/internal/dagger"
 )
+
+//go:embed scripts/capture.js
+var captureScript string
+
+//go:embed scripts/nginx.conf
+var nginxConf string
 
 type BsidesK8S struct{}
 
@@ -291,4 +298,64 @@ func (m *BsidesK8S) Serve(
 		AsService(dagger.ContainerAsServiceOpts{
 			Args: []string{"/app/server"},
 		})
+}
+
+// ExportPdf renders the presentation as a PDF with a first-page link to the
+// GitHub repo. Everything runs headlessly inside Dagger — Playwright drives
+// a Chromium session against an nginx-served copy of the Svelte build,
+// stepping through each slide (including substep animations) and capturing
+// a screenshot per slide. The screenshots are then stitched into a single
+// PDF.
+//
+// Usage:
+//
+//	dagger call export-pdf export --path bsides-k8s-2026.pdf
+func (m *BsidesK8S) ExportPdf(
+	ctx context.Context,
+	// Frontend source directory
+	// +defaultPath="./frontend"
+	frontendSource *dagger.Directory,
+	// GitHub repo URL shown on the cover page
+	// +default="https://github.com/AsocPro/bsides-k8s-2026"
+	repoUrl string,
+) *dagger.File {
+	// Build the Svelte frontend and serve it as static files. The real
+	// backend (ttyd + /api/state) isn't available during capture — the
+	// embedded nginx config returns friendly placeholders for those paths
+	// so the demo slide iframes don't render as 404 pages.
+	frontend := m.BuildFrontend(frontendSource)
+
+	server := dag.Container().
+		From("nginx:alpine").
+		WithDirectory("/usr/share/nginx/html", frontend).
+		WithNewFile("/etc/nginx/conf.d/default.conf", nginxConf).
+		WithExposedPort(80).
+		AsService(dagger.ContainerAsServiceOpts{})
+
+	// Playwright image version must match the npm package version so the
+	// preinstalled browsers at PLAYWRIGHT_BROWSERS_PATH are reused instead
+	// of being downloaded again.
+	const playwrightVersion = "1.49.0"
+
+	capture := dag.Container().
+		From("mcr.microsoft.com/playwright:v"+playwrightVersion+"-jammy").
+		WithServiceBinding("presentation", server).
+		WithEnvVariable("BASE_URL", "http://presentation/").
+		WithEnvVariable("REPO_URL", repoUrl).
+		WithEnvVariable("OUT_DIR", "/work/out").
+		WithWorkdir("/work").
+		WithNewFile("/work/capture.js", captureScript).
+		WithNewFile("/work/package.json", `{"name":"bsides-pdf-capture","version":"1.0.0","private":true,"dependencies":{"playwright":"`+playwrightVersion+`"}}`).
+		WithMountedCache("/root/.npm", dag.CacheVolume("pdf-capture-npm-cache")).
+		WithExec([]string{"sh", "-c", "apt-get update -qq && apt-get install -y -qq --no-install-recommends img2pdf poppler-utils"}).
+		WithExec([]string{"npm", "install", "--no-audit", "--no-fund", "--prefer-offline"}).
+		WithExec([]string{"node", "capture.js"}).
+		// Slides are PNG screenshots (for fidelity with GSAP animations and
+		// iframe placeholders); the title page is a real PDF so its repo
+		// link is a clickable annotation. img2pdf builds the slide pages
+		// losslessly, then pdfunite concatenates title + slides.
+		WithExec([]string{"sh", "-c", "img2pdf $(ls /work/out/page-*.png | sort) --output /work/slides.pdf"}).
+		WithExec([]string{"pdfunite", "/work/out/title.pdf", "/work/slides.pdf", "/work/bsides-k8s-2026.pdf"})
+
+	return capture.File("/work/bsides-k8s-2026.pdf")
 }
